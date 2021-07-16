@@ -131,6 +131,7 @@ public class InvocationLoweringBasicBlockBuilder extends DelegatingBasicBlockBui
 
     @Override
     public ValueHandle visit(ArrayList<Value> args, VirtualMethodElementHandle node) {
+//        try { throw new RuntimeException(); } catch (Exception e) { e.printStackTrace(); }
         final BasicBlockBuilder fb = getFirstBuilder();
         // insert "this" and current thread
         args.addAll(0, List.of(fb.currentThread(), node.getInstance()));
@@ -151,6 +152,8 @@ public class InvocationLoweringBasicBlockBuilder extends DelegatingBasicBlockBui
         Value typeId = fb.typeIdOf(fb.referenceHandle(node.getInstance()));
         Value vtable = fb.load(elementOf(globalVariable(dt.getVTablesGlobal()), typeId), MemoryAtomicityMode.UNORDERED);
         Value ptr = fb.load(memberOf(pointerHandle(bitCast(vtable, info.getType().getPointer())), info.getType().getMember(index)), MemoryAtomicityMode.UNORDERED);
+        System.out.println("Target1:" + target + ", " + pointerHandle(ptr));
+        ctxt.setVirtualFunction(pointerHandle(ptr), target);
         return pointerHandle(ptr);
     }
 
@@ -176,6 +179,7 @@ public class InvocationLoweringBasicBlockBuilder extends DelegatingBasicBlockBui
         Value typeId = fb.typeIdOf(fb.referenceHandle(node.getInstance()));
         Value itable = fb.load(elementOf(globalVariable(info.getGlobal()), typeId), MemoryAtomicityMode.UNORDERED);
         final Value ptr = fb.load(memberOf(pointerHandle(itable), info.getType().getMember(index)), MemoryAtomicityMode.UNORDERED);
+        System.out.println("Target2:" + target + ", " + ptr);
         return pointerHandle(ptr);
     }
 

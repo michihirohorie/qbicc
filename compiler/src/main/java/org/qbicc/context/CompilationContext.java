@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Consumer;
 
+import org.qbicc.graph.ValueHandle;
 import org.qbicc.graph.literal.LiteralFactory;
 import org.qbicc.graph.literal.SymbolLiteral;
 import org.qbicc.interpreter.VmObject;
@@ -83,6 +84,10 @@ public interface CompilationContext extends DiagnosticContext {
     SymbolLiteral getCurrentThreadLocalSymbolLiteral();
 
     FieldElement getExceptionField();
+
+    void setVirtualFunction(ValueHandle valueHandle, MethodElement element);
+
+    MethodElement getVirtualFunction(ValueHandle valueHandle);
 
     /**
      * Run a task on every compiler thread.  When the task has returned on all threads, this method will return.  This

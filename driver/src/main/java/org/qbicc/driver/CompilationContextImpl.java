@@ -22,6 +22,7 @@ import org.qbicc.context.Diagnostic;
 import org.qbicc.context.Location;
 import org.qbicc.graph.BasicBlockBuilder;
 import org.qbicc.graph.Node;
+import org.qbicc.graph.ValueHandle;
 import org.qbicc.graph.literal.LiteralFactory;
 import org.qbicc.graph.literal.SymbolLiteral;
 import org.qbicc.interpreter.VmObject;
@@ -67,6 +68,7 @@ final class CompilationContextImpl implements CompilationContext {
     private final ConcurrentMap<DefinedTypeDefinition, ProgramModule> programModules = new ConcurrentHashMap<>();
     private final ConcurrentMap<ExecutableElement, org.qbicc.object.Function> exactFunctions = new ConcurrentHashMap<>();
     private final ConcurrentMap<MethodElement, org.qbicc.object.Function> virtualFunctions = new ConcurrentHashMap<>();
+    private final ConcurrentMap<ValueHandle, MethodElement> functionMap = new ConcurrentHashMap<>();
     private final Path outputDir;
     final List<BiFunction<? super ClassContext, DescriptorTypeResolver, DescriptorTypeResolver>> resolverFactories;
     private final AtomicReference<FieldElement> exceptionFieldHolder = new AtomicReference<>();
@@ -333,6 +335,14 @@ final class CompilationContextImpl implements CompilationContext {
             .declareFunction(target, function.getName(), function.getType());
     }
 
+    public void setVirtualFunction(final ValueHandle valueHandle, final MethodElement element) {
+        functionMap.put(valueHandle, element);
+    }
+
+    public MethodElement getVirtualFunction(final ValueHandle valueHandle) {
+        return functionMap.get(valueHandle);
+    }
+
     public org.qbicc.object.Function getVirtualFunction(final MethodElement element) {
         // optimistic
         org.qbicc.object.Function function = virtualFunctions.get(element);
@@ -342,10 +352,11 @@ final class CompilationContextImpl implements CompilationContext {
         // look up the thread ID literal - todo: lazy cache?
         ClassObjectType threadType = bootstrapClassContext.findDefinedType("java/lang/Thread").load().getClassType();
         Section implicit = getImplicitSection(element);
-        return exactFunctions.computeIfAbsent(element, e -> {
+        org.qbicc.object.Function func = virtualFunctions.computeIfAbsent(element, e -> {
             FunctionType type = getFunctionTypeForElement(element, threadType);
             return implicit.addFunction(element, getVirtualNameForElement(element, type), type);
         });
+        return func;
     }
 
     public SymbolLiteral getCurrentThreadLocalSymbolLiteral() {

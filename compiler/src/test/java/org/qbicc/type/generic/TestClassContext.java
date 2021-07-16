@@ -15,6 +15,7 @@ import org.qbicc.context.Diagnostic;
 import org.qbicc.context.Location;
 import org.qbicc.graph.BasicBlockBuilder;
 import org.qbicc.graph.Node;
+import org.qbicc.graph.ValueHandle;
 import org.qbicc.graph.literal.LiteralFactory;
 import org.qbicc.graph.literal.SymbolLiteral;
 import org.qbicc.interpreter.VmObject;
@@ -137,6 +138,14 @@ public class TestClassContext implements ClassContext {
         }
 
         public FieldElement getExceptionField() {
+            return null;
+        }
+
+        public void setVirtualFunction(ValueHandle valueHandle, MethodElement element) {
+            return;
+        }
+
+        public MethodElement getVirtualFunction(ValueHandle valueHandle) {
             return null;
         }
 

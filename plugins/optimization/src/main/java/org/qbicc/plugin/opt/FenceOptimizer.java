@@ -30,6 +30,7 @@ import org.qbicc.graph.TailCall;
 import org.qbicc.graph.TailInvoke;
 import org.qbicc.graph.Value;
 import org.qbicc.graph.ValueHandle;
+import org.qbicc.graph.VirtualMethodElementHandle;
 import org.qbicc.graph.literal.SymbolLiteral;
 import org.qbicc.object.Data;
 import org.qbicc.object.DataDeclaration;
@@ -43,6 +44,13 @@ import org.qbicc.type.definition.MethodBody;
 import org.qbicc.type.definition.element.ExecutableElement;
 import org.qbicc.type.definition.element.MethodElement;
 
+import org.qbicc.plugin.dispatch.DispatchTables;
+//import org.qbicc.driver.ClassContext;
+import org.qbicc.type.definition.DefinedTypeDefinition;
+import org.qbicc.type.definition.LoadedTypeDefinition;
+
+import org.qbicc.plugin.reachability.RTAInfo;
+
 import org.jboss.logging.Logger;
 
 
@@ -52,8 +60,10 @@ import org.jboss.logging.Logger;
 public class FenceOptimizer implements Consumer<CompilationContext> {
     static final Logger logger = Logger.getLogger("org.qbicc.plugin.opt.fence");
     private FenceAnalyzerVisitor analyzer;
+    private CompilationContext ctxt;
 
     public void accept(final CompilationContext ctxt) {
+        this.ctxt = ctxt;
         // Analyze
         analyzer = new FenceAnalyzerVisitor(ctxt);
         for (ProgramModule programModule : ctxt.getAllProgramModules()) {
@@ -73,6 +83,7 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
                         logger.debugf("Analyze %s", ((Function) item).getName());
                         try {
                             analyzer.execute(entryBlock, ((Function) item).getName());
+                            System.out.println("Function:" + ((Function) item).getName());
                         } catch (FenceAnalyzerVisitor.TooBigException e) {
                             ctxt.warning("Element \"%s\" is too big. Abort fence optimization.", element);
                         }
@@ -408,6 +419,7 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
 
     private boolean getIncomingIfFunctionCall(Node node, Object[] ret) {
         if (node instanceof Call) {
+//            System.out.println("Arg:" + ((Call) node).getArguments());
             ret[0] = getIncoming(((Call) node).getValueHandle());
             return true;
         } else if (node instanceof CallNoSideEffects) {
@@ -439,8 +451,45 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
      *
      */
     private Set<Node> getIncoming(ValueHandle valueHandle) {
-        if (valueHandle instanceof FunctionHandle || valueHandle instanceof FunctionDeclarationHandle) {
+        if (valueHandle instanceof PointerHandle) {
+            MethodElement element = ctxt.getVirtualFunction(valueHandle);
+            if (element == null) {
+                return null;
+            }
+            String packageName = element.getEnclosingType().getDescriptor().getPackageName();
+            String className = packageName.isEmpty()
+                               ? element.getEnclosingType().getDescriptor().getClassName()
+                               : packageName+"/"+element.getEnclosingType().getDescriptor().getClassName();
+            DefinedTypeDefinition cls = ctxt.getBootstrapClassContext().findDefinedType(className);
+//            System.out.println(element + ", " + cls + ", name=" + className);
+            if (cls == null) {
+                return null;
+            }
+
+            LoadedTypeDefinition loaded = cls.load();
+            RTAInfo rtaInfo = RTAInfo.get(ctxt);
+            List<String> subClassNames = new ArrayList<String>();
+            Consumer<LoadedTypeDefinition> consumer = sub -> { subClassNames.add(sub.getType() + ""); };
+            rtaInfo.visitReachableSubclassesPreOrder(loaded, consumer);
+            
+            String methodName = element.getName() + element.getDescriptor();
+            for (String subClassName : subClassNames) {
+                System.out.println("Here:" + subClassName + "." + methodName);
+            }
+            
+//            
+//            DispatchTables dt = DispatchTables.get(ctxt);
+//            DispatchTables.VTableInfo info = dt.getVTableInfo(loaded);
+//            int index = dt.getVTableIndex(element);
+//            MethodElement[] elements = info.getVtable();
+//            for (int i = 0; i < elements.length; ++i) {
+//                System.out.println(i + ":" + elements[i]);
+//            }
+            
+            return null;
+        } else if (valueHandle instanceof FunctionHandle || valueHandle instanceof FunctionDeclarationHandle) {
             String callName = ((AbstractProgramObjectHandle) valueHandle).getProgramObject().getName();
+            System.out.println("CallName:" + callName);
             Map<String, FenceAnalyzerVisitor.FunctionInfo> functionInfoMap = FenceAnalyzerVisitor.getAnalysis();
             FenceAnalyzerVisitor.FunctionInfo functionInfo = functionInfoMap.get(callName);
             if (functionInfo == null) {
@@ -457,6 +506,10 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
 
             return functionInfo.getTailNodes();
         } else { // TODO: Support PointerHandle case
+//            if (valueHandle instanceof VirtualMethodElementHandle) {
+//                System.out.println("VMEH");
+//            }
+            System.out.println("ELSE:" + valueHandle);
             return null;
         }
     }

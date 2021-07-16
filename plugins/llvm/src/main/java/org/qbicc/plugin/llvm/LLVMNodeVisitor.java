@@ -1057,6 +1057,7 @@ final class LLVMNodeVisitor implements NodeVisitor<Void, LLValue, Instruction, I
         LLValue index = map(node.getStructType(), node.getMember());
         GetElementPtr gep = node.getValueHandle().accept(this, param);
         gep.comment("member " + node.getMember().getName());
+//        System.out.println("Memberof:" + node);
         return gep.arg(false, i32, index);
     }
 
@@ -1068,6 +1069,10 @@ final class LLVMNodeVisitor implements NodeVisitor<Void, LLValue, Instruction, I
 
     @Override
     public GetElementPtr visit(Void param, PointerHandle node) {
+        Value val = node.getPointerValue();
+        if (val instanceof Load) {
+            System.out.println("load:" + node);
+        }
         return gep(map(node.getPointerValue()), node).arg(false, i32, ZERO);
     }
 
