@@ -456,6 +456,8 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
             if (element == null) {
                 return null;
             }
+            String exactName = ctxt.getExactNameForElement(element, element.getType());
+            System.out.println("Original-super:" + exactName);
             String packageName = element.getEnclosingType().getDescriptor().getPackageName();
             String className = packageName.isEmpty()
                                ? element.getEnclosingType().getDescriptor().getClassName()
@@ -469,12 +471,23 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
             LoadedTypeDefinition loaded = cls.load();
             RTAInfo rtaInfo = RTAInfo.get(ctxt);
             List<String> subClassNames = new ArrayList<String>();
-            Consumer<LoadedTypeDefinition> consumer = sub -> { subClassNames.add(sub.getType() + ""); };
+            Consumer<LoadedTypeDefinition> consumer = sub -> {
+                String subTypeName = sub.getType().toString();
+                String extracted = subTypeName.substring("class(".length(), subTypeName.length() -1).replaceAll("/", ".");
+                subClassNames.add(extracted);
+            };
             rtaInfo.visitReachableSubclassesPreOrder(loaded, consumer);
             
             String methodName = element.getName() + element.getDescriptor();
+            List<String> methodNames = new ArrayList<String>();
             for (String subClassName : subClassNames) {
-                System.out.println("Here:" + subClassName + "." + methodName);
+                methodNames.add(exactName.replace(className.replaceAll("/", "."), subClassName));
+            }
+            
+            for (String method : methodNames) {
+                Map<String, FenceAnalyzerVisitor.FunctionInfo> functionInfoMap = FenceAnalyzerVisitor.getAnalysis();
+                FenceAnalyzerVisitor.FunctionInfo functionInfo = functionInfoMap.get(method);
+
             }
             
 //            

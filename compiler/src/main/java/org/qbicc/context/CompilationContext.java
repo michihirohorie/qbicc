@@ -21,6 +21,7 @@ import org.qbicc.type.definition.element.FieldElement;
 import org.qbicc.type.definition.element.MemberElement;
 import org.qbicc.type.definition.element.MethodElement;
 
+
 /**
  *
  */
@@ -74,6 +75,8 @@ public interface CompilationContext extends DiagnosticContext {
     Section getImplicitSection(DefinedTypeDefinition typeDefinition);
 
     Function getExactFunction(ExecutableElement element);
+
+    String getExactNameForElement(ExecutableElement element, FunctionType type);
 
     Function getExactFunctionIfExists(ExecutableElement element);
 

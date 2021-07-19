@@ -388,7 +388,7 @@ final class CompilationContextImpl implements CompilationContext {
         return fieldElement;
     }
 
-    private String getExactNameForElement(final ExecutableElement element, final FunctionType type) {
+    public String getExactNameForElement(final ExecutableElement element, final FunctionType type) {
         // todo: encode class loader ID
         // todo: cache :-(
         String internalDotName = element.getEnclosingType().getInternalName().replace('/', '.');

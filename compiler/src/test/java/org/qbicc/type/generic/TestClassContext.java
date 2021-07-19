@@ -124,6 +124,10 @@ public class TestClassContext implements ClassContext {
         public Function getExactFunctionIfExists(ExecutableElement element) {
             return null;
         }
+ 
+        public String getExactNameForElement(final ExecutableElement element, final FunctionType type) {
+            return null;
+        }
 
         public FunctionType getFunctionTypeForElement(ExecutableElement element) {
             return null;
