@@ -83,7 +83,6 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
                         logger.debugf("Analyze %s", ((Function) item).getName());
                         try {
                             analyzer.execute(entryBlock, ((Function) item).getName());
-                            System.out.println("Function:" + ((Function) item).getName());
                         } catch (FenceAnalyzerVisitor.TooBigException e) {
                             ctxt.warning("Element \"%s\" is too big. Abort fence optimization.", element);
                         }
@@ -419,7 +418,6 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
 
     private boolean getIncomingIfFunctionCall(Node node, Object[] ret) {
         if (node instanceof Call) {
-//            System.out.println("Arg:" + ((Call) node).getArguments());
             ret[0] = getIncoming(((Call) node).getValueHandle());
             return true;
         } else if (node instanceof CallNoSideEffects) {
@@ -457,13 +455,11 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
                 return null;
             }
             String exactName = ctxt.getExactNameForElement(element, element.getType());
-            System.out.println("Original-super:" + exactName);
             String packageName = element.getEnclosingType().getDescriptor().getPackageName();
             String className = packageName.isEmpty()
                                ? element.getEnclosingType().getDescriptor().getClassName()
                                : packageName+"/"+element.getEnclosingType().getDescriptor().getClassName();
             DefinedTypeDefinition cls = ctxt.getBootstrapClassContext().findDefinedType(className);
-//            System.out.println(element + ", " + cls + ", name=" + className);
             if (cls == null) {
                 return null;
             }
@@ -473,36 +469,69 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
             List<String> subClassNames = new ArrayList<String>();
             Consumer<LoadedTypeDefinition> consumer = sub -> {
                 String subTypeName = sub.getType().toString();
-                String extracted = subTypeName.substring("class(".length(), subTypeName.length() -1).replaceAll("/", ".");
-                subClassNames.add(extracted);
+                subClassNames
+                        .add(subTypeName.substring("class(".length(), subTypeName.length() - 1).replaceAll("/", "."));
+
             };
+
             rtaInfo.visitReachableSubclassesPreOrder(loaded, consumer);
             
-            String methodName = element.getName() + element.getDescriptor();
-            List<String> methodNames = new ArrayList<String>();
-            for (String subClassName : subClassNames) {
-                methodNames.add(exactName.replace(className.replaceAll("/", "."), subClassName));
-            }
-            
-            for (String method : methodNames) {
-                Map<String, FenceAnalyzerVisitor.FunctionInfo> functionInfoMap = FenceAnalyzerVisitor.getAnalysis();
-                FenceAnalyzerVisitor.FunctionInfo functionInfo = functionInfoMap.get(method);
+            Map<String, FenceAnalyzerVisitor.FunctionInfo> functionInfoMap = FenceAnalyzerVisitor.getAnalysis();
 
+            if (subClassNames.size() == 0) { // Only "exactName" is found as the potential callee
+                FenceAnalyzerVisitor.FunctionInfo functionInfo = functionInfoMap.get(exactName);
+
+                if (functionInfo == null) {
+                    logger.debugf("No record on %s", exactName);
+                    return null;
+                }
+
+                logger.debugf("Looking for record on %s", exactName);
+                if (functionInfo.resolved()) {
+                    return functionInfo.getTailNodes();
+                }
+
+                weaken(exactName, functionInfo);
+
+                return functionInfo.getTailNodes();
             }
-            
-//            
-//            DispatchTables dt = DispatchTables.get(ctxt);
-//            DispatchTables.VTableInfo info = dt.getVTableInfo(loaded);
-//            int index = dt.getVTableIndex(element);
-//            MethodElement[] elements = info.getVtable();
-//            for (int i = 0; i < elements.length; ++i) {
-//                System.out.println(i + ":" + elements[i]);
-//            }
-            
-            return null;
+
+            // Multiple callees are found.
+            Set<Node> incomings = new HashSet<Node>();
+            for (String subClassName : subClassNames) {
+                String methodName = exactName.replace(className.replaceAll("/", "."), subClassName);
+                FenceAnalyzerVisitor.FunctionInfo functionInfo = functionInfoMap.get(methodName);
+
+                if (functionInfo == null) {
+                    logger.debugf("No record on %s", methodName);
+                    return null;
+                }
+
+                logger.debugf("Looking for record on %s", methodName);
+                if (functionInfo.resolved()) {
+                    Set<Node> tailNodes = functionInfo.getTailNodes();
+                    if (tailNodes == null) {
+                        return null;
+                    } else if (tailNodes.size() == 0) {
+                        return Set.of();
+                    }
+                    incomings.addAll(tailNodes);
+                } else {
+                    weaken(methodName, functionInfo);
+
+                    Set<Node> tailNodes = functionInfo.getTailNodes();
+                    if (tailNodes == null) {
+                        return null;
+                    } else if (tailNodes.size() == 0) {
+                        return Set.of();
+                    }
+                    incomings.addAll(tailNodes);
+                }
+            }
+
+            return incomings;
         } else if (valueHandle instanceof FunctionHandle || valueHandle instanceof FunctionDeclarationHandle) {
             String callName = ((AbstractProgramObjectHandle) valueHandle).getProgramObject().getName();
-            System.out.println("CallName:" + callName);
             Map<String, FenceAnalyzerVisitor.FunctionInfo> functionInfoMap = FenceAnalyzerVisitor.getAnalysis();
             FenceAnalyzerVisitor.FunctionInfo functionInfo = functionInfoMap.get(callName);
             if (functionInfo == null) {
@@ -518,12 +547,8 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
             weaken(callName, functionInfo);
 
             return functionInfo.getTailNodes();
-        } else { // TODO: Support PointerHandle case
-//            if (valueHandle instanceof VirtualMethodElementHandle) {
-//                System.out.println("VMEH");
-//            }
-            System.out.println("ELSE:" + valueHandle);
-            return null;
         }
+
+        return null;
     }
 }

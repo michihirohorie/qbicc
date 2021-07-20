@@ -252,31 +252,13 @@ public class Driver implements Closeable {
     }
 
     private DefinedTypeDefinition defaultFinder(VmObject classLoader, String name) {
-        System.out.println("NAME:" + name);
         if (classLoader != null) {
             return null;
         }
-        System.out.println("NAME2:" + name);
 
         String fileName = name + ".class";
         ByteBuffer buffer;
         ClassContext ctxt = compilationContext.getBootstrapClassContext();
-//        try (ClassPathElement.Resource resource = element.getResource(fileName)) {
-//            buffer = resource.getBuffer();
-//            if (buffer != null) {
-//                ClassFile classFile = ClassFile.of(ctxt, buffer);
-//                DefinedTypeDefinition.Builder builder = DefinedTypeDefinition.Builder.basic();
-//                for (BiFunction<? super ClassContext, DefinedTypeDefinition.Builder, DefinedTypeDefinition.Builder> factory : typeBuilderFactories) {
-//                    builder = factory.apply(ctxt, builder);
-//                }
-//                classFile.accept(builder);
-//                DefinedTypeDefinition def = builder.build();
-//                ctxt.defineOtherClass(name, def);
-//                System.out.println("NAME3:" + name);
-//            }
-//        } catch (Exception e) {
-//            log.warnf(e, "An exception was thrown while loading class \"%s\" from the bootstrap loader", name);
-//        }
         for (ClassPathElement element : bootClassPath) {
             try (ClassPathElement.Resource resource = element.getResource(fileName)) {
                 buffer = resource.getBuffer();

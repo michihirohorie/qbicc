@@ -1070,9 +1070,6 @@ final class LLVMNodeVisitor implements NodeVisitor<Void, LLValue, Instruction, I
     @Override
     public GetElementPtr visit(Void param, PointerHandle node) {
         Value val = node.getPointerValue();
-        if (val instanceof Load) {
-            System.out.println("load:" + node);
-        }
         return gep(map(node.getPointerValue()), node).arg(false, i32, ZERO);
     }
 
