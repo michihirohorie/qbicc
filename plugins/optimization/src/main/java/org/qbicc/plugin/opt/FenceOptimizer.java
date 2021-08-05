@@ -2,6 +2,7 @@ package org.qbicc.plugin.opt;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -15,9 +16,11 @@ import org.qbicc.graph.BasicBlock;
 import org.qbicc.graph.Call;
 import org.qbicc.graph.CallNoSideEffects;
 import org.qbicc.graph.CallNoReturn;
+import org.qbicc.graph.ElementOf;
 import org.qbicc.graph.Fence;
 import org.qbicc.graph.FunctionHandle;
 import org.qbicc.graph.FunctionDeclarationHandle;
+import org.qbicc.graph.GlobalVariable;
 import org.qbicc.graph.Invoke;
 import org.qbicc.graph.InvokeNoReturn;
 import org.qbicc.graph.Load;
@@ -30,6 +33,7 @@ import org.qbicc.graph.TailCall;
 import org.qbicc.graph.TailInvoke;
 import org.qbicc.graph.Value;
 import org.qbicc.graph.ValueHandle;
+import org.qbicc.graph.Variable;
 import org.qbicc.graph.VirtualMethodElementHandle;
 import org.qbicc.graph.literal.SymbolLiteral;
 import org.qbicc.object.Data;
@@ -61,6 +65,7 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
     static final Logger logger = Logger.getLogger("org.qbicc.plugin.opt.fence");
     private FenceAnalyzerVisitor analyzer;
     private CompilationContext ctxt;
+    private boolean foundSB;
 
     public void accept(final CompilationContext ctxt) {
         this.ctxt = ctxt;
@@ -94,6 +99,11 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
         // Analysis done. Call/Invoke related nodes are not resolved yet.
         Map<String, FenceAnalyzerVisitor.FunctionInfo> functionInfoMap = FenceAnalyzerVisitor.getAnalysis();
 
+        foundSB = findSB(functionInfoMap);
+        System.out.println("SB found?:" + foundSB);
+        logger.debugf("SB:%d", foundSB);
+        boolean foundIRIW = findIRIW(functionInfoMap);
+        logger.debugf("IRIW:%d", foundIRIW);
 
         // Optimize
         for (String functionName : functionInfoMap.keySet()) {
@@ -145,6 +155,215 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
         addTail(functionName, functionInfo);
 
         functionInfo.setWeakened();
+    }
+
+    /**
+     * Find the Store-Buffering (SB) pattern.
+     *
+     */
+    private boolean findSB(Map<String, FenceAnalyzerVisitor.FunctionInfo> functionInfoMap) {
+        Map<Store, Load> storeLoads = new HashMap<Store, Load>();
+
+        // Collect sequences of store and load in the program order.
+        for (String functionName : functionInfoMap.keySet()) {
+            logger.debugf("Attempt to find the SB pattern %s", functionName);
+            collectPotentialSB(functionInfoMap.get(functionName), storeLoads);
+        }
+
+        for (Store store1 : storeLoads.keySet()) {
+            ValueHandle storeHandle1 = store1.getValueHandle();
+            ValueHandle loadHandle1 = storeLoads.get(store1).getValueHandle();
+
+            // Skip if loadHandle1 is equal to storeHandle1
+            if (equals(storeHandle1, loadHandle1)) {
+                continue;
+            }
+
+            for (Store store2 : storeLoads.keySet()) {
+                ValueHandle storeHandle2 = store2.getValueHandle();
+                ValueHandle loadHandle2 = storeLoads.get(store2).getValueHandle();
+
+                if (equals(storeHandle2, loadHandle1) && equals(storeHandle1, loadHandle2)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+    
+    /**
+     * Find the Independent Reads of Independent Writes (IRIW) pattern.
+     * 
+     */
+    private boolean findIRIW(Map<String, FenceAnalyzerVisitor.FunctionInfo> functionInfoMap) {
+        Map<Load, Load> loadLoads = new HashMap<Load, Load>();
+        Set<Store> stores = new HashSet<Store>();
+
+        // Collect sequences of store and load in the program order.
+        for (String functionName : functionInfoMap.keySet()) {
+            logger.debugf("Attempt to find the IRIW pattern %s", functionName);
+            collectPotentialIRIW(functionInfoMap.get(functionName), loadLoads, stores);
+        }
+
+        for (Load load1 : loadLoads.keySet()) {
+            ValueHandle loadHandle1 = load1.getValueHandle();
+            ValueHandle loadHandle2 = loadLoads.get(load1).getValueHandle();
+
+            // Skip if loadHandle1 is equal to loadHandle2
+            if (equals(loadHandle1, loadHandle2)) {
+                continue;
+            }
+
+            for (Load load3 : loadLoads.keySet()) {
+                ValueHandle loadHandle3 = load3.getValueHandle();
+                ValueHandle loadHandle4 = loadLoads.get(load3).getValueHandle();
+                
+                if (equals(loadHandle1, loadHandle4) && equals(loadHandle2, loadHandle3)) {
+                    boolean store1 = false;
+                    boolean store2 = false;
+                    for (Store store : stores) {
+                        ValueHandle storeHandle = store.getValueHandle();
+                        if (!store1 && equals(storeHandle, loadHandle1)) {
+                            store1 = true;
+                        }
+                        if (!store2 && equals(storeHandle, loadHandle3)) {
+                            store2 = true;
+                        }
+                        if (store1 && store2) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private void collectPotentialSB(FenceAnalyzerVisitor.FunctionInfo functionInfo, Map<Store, Load> storeLoads) {
+        Map<BasicBlock, FenceAnalyzerVisitor.BlockInfo> blockInfoMap = functionInfo.getMap();
+        for (BasicBlock block : blockInfoMap.keySet()) {
+            FenceAnalyzerVisitor.BlockInfo blockInfo = blockInfoMap.get(block);
+            if (blockInfo.isFailed()) {
+                logger.debugf("Couldn't get the information on fences in BasicBlock %s", block);
+                continue;
+            }
+            List<Node> list = blockInfo.getList();
+            if (list.size() == 0) {
+                continue;
+            }
+
+            for (int i = list.size() - 1; i >= 0; --i) {
+                Node target = list.get(i);
+                if (!(target instanceof Load)) {
+                    continue;
+                }
+
+                int j = i - 1;
+                for (; j >= 0; --j) {
+                    Node prev = list.get(j);
+                    if (prev instanceof Load) {
+                        break;
+                    } else if (prev instanceof Store) {
+                        storeLoads.put((Store)prev, (Load)target);
+                    } else if (isFunctionCall(prev)) {
+                        Object[] ret = new Object[1];
+                        if (getIncomingIfFunctionCall(prev, ret)) {
+                            Set<Node> set = (Set<Node>) ret[0];
+                            if (set == null) {
+                                continue;
+                            }
+                            for (Node p : set) {
+                                if (p instanceof Store) {
+                                    storeLoads.put((Store)p, (Load)target);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (j < 0) {
+                    Set<Node> incoming = blockInfo.getIncoming();
+                    for (Node prev : incoming) {
+                        if (prev instanceof Store) {
+                            storeLoads.put((Store)prev, (Load)target);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private void collectPotentialIRIW(FenceAnalyzerVisitor.FunctionInfo functionInfo, Map<Load, Load> loadLoads, Set<Store> stores) {
+        Map<BasicBlock, FenceAnalyzerVisitor.BlockInfo> blockInfoMap = functionInfo.getMap();
+        for (BasicBlock block : blockInfoMap.keySet()) {
+            FenceAnalyzerVisitor.BlockInfo blockInfo = blockInfoMap.get(block);
+            if (blockInfo.isFailed()) {
+                logger.debugf("Couldn't get the information on fences in BasicBlock %s", block);
+                continue;
+            }
+            List<Node> list = blockInfo.getList();
+            if (list.size() == 0) {
+                continue;
+            }
+
+            for (int i = list.size() - 1; i >= 0; --i) {
+                Node target = list.get(i);
+                if (target instanceof Store) 
+                    stores.add((Store) target);
+                if (!(target instanceof Load)) {
+                    continue;
+                }
+
+                int j = i - 1;
+                for (; j >= 0; --j) {
+                    Node prev = list.get(j);
+                    if (prev instanceof Store) {
+                        break;
+                    } else if (prev instanceof Load) {
+                        loadLoads.put((Load)prev, (Load)target);
+                    } else if (isFunctionCall(prev)) {
+                        Object[] ret = new Object[1];
+                        if (getIncomingIfFunctionCall(prev, ret)) {
+                            Set<Node> set = (Set<Node>) ret[0];
+                            if (set == null) {
+                                continue;
+                            }
+                            for (Node p : set) {
+                                if (p instanceof Load) {
+                                    loadLoads.put((Load)p, (Load)target);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (j < 0) {
+                    Set<Node> incoming = blockInfo.getIncoming();
+                    for (Node prev : incoming) {
+                        if (prev instanceof Load) {
+                            loadLoads.put((Load)prev, (Load)target);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private boolean equals(ValueHandle v1, ValueHandle v2) {
+        if (v1 instanceof GlobalVariable) {
+            GlobalVariable v = (GlobalVariable) v1;
+            return v.equals(v2); 
+        } else if (v1 instanceof ElementOf) {
+            ElementOf v = (ElementOf) v1;
+            return v.equals(v2);
+        } else if (v1 instanceof MemberOf) {
+            MemberOf v = (MemberOf) v1;
+            return v.equals(v2);
+        }
+        
+        return false;
     }
 
     /**
@@ -275,6 +494,10 @@ public class FenceOptimizer implements Consumer<CompilationContext> {
     }
 
     private boolean weaken(Store store, Node prev) {
+        if (!foundSB) {
+            store.setMode(MemoryAtomicityMode.RELEASE);
+            System.out.println("Done.");
+        }
         return true;
     }
 
