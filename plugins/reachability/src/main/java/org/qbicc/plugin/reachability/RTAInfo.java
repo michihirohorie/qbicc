@@ -380,6 +380,10 @@ public class RTAInfo {
                         invokableMethods.add(im);
                         ctxt.enqueue(im);
                     }
+                } else if (directlyInstantiated) {
+                    rtaLog.debugf("\tfundamental class to be considered reachable: enqueued instance method: %s", im);
+                    invokableMethods.add(im);
+                    ctxt.enqueue(im);
                 }
             }
         }
